@@ -1,17 +1,16 @@
 {
-  "name": "mfbd_render",
+  "name": "mfbd-telegram-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "MFBD Drive Telegram Upload Bot",
   "main": "bot.js",
   "type": "module",
   "scripts": {
     "start": "node bot.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "telegraf": "^4.12.2",
-    "axios": "^1.6.2"
+    "axios": "^1.7.2",
+    "body-parser": "^1.20.2",
+    "express": "^4.18.2",
+    "telegraf": "^4.12.3"
   }
 }
