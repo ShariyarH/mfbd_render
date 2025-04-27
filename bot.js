@@ -2,84 +2,100 @@ const { Telegraf } = require('telegraf');
 const fs = require('fs');
 require('dotenv').config();
 
+// Load Environment Variables
+const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
-
-// Load existing file database
-let fileDb = {};
-const dbPath = './files.json';
-if (fs.existsSync(dbPath)) {
-  fileDb = JSON.parse(fs.readFileSync(dbPath));
+if (!BOT_TOKEN || !CHANNEL_ID) {
+  console.error("❌ BOT_TOKEN or CHANNEL_ID not set in environment variables.");
+  process.exit(1);
 }
 
-// Save uploaded file_id
-function saveFileId(fileName, fileId, type) {
-  fileDb[fileName] = { file_id: fileId, type: type };
+// Initialize bot
+const bot = new Telegraf(BOT_TOKEN);
+
+// File database path
+const dbPath = './files.json';
+let fileDb = {};
+
+// Load existing database
+if (fs.existsSync(dbPath)) {
+  fileDb = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+}
+
+// Save new file info to db
+function saveFile(fileName, fileId, type) {
+  fileDb[fileName] = { file_id: fileId, type };
   fs.writeFileSync(dbPath, JSON.stringify(fileDb, null, 2));
 }
 
-// Delete message after 5 min
-function deleteAfter(chatId, messageId) {
+// Auto delete message after 5 minutes
+function autoDelete(chatId, messageId) {
   setTimeout(() => {
-    bot.telegram.deleteMessage(chatId, messageId).catch(e => console.log("Already deleted"));
-  }, 300000); // 5 min
+    bot.telegram.deleteMessage(chatId, messageId).catch(err => console.log('Message already deleted.'));
+  }, 5 * 60 * 1000); // 5 minutes
 }
 
-// Start
+// Bot start
 bot.start((ctx) => {
-  ctx.reply('👋 Welcome! Send /getfile to receive your file.');
+  ctx.reply('👋 Welcome! Send /getfile to get your file!');
 });
 
-// Command to get file
+// /getfile command
 bot.command('getfile', async (ctx) => {
-  const fileName = "ExampleVideo.mp4"; // Update this to your file
-  const localPath = "./example.mp4"; // Your local file path
+  const fileName = "ExampleVideo.mp4"; // Example filename
+  const localPath = "./example.mp4";   // Local file
+
   const caption = `
 📂 File: ${fileName}
-✅ 5 Min Auto Delete Active
+✅ Auto delete in 5 minutes
 🚨 Forwarding Can Ban You!
 `;
 
   try {
     if (fileDb[fileName]) {
-      const fileData = fileDb[fileName];
-      if (fileData.type === 'video') {
-        const sent = await ctx.replyWithVideo(fileData.file_id, {
-          caption,
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "🔗 DriveLink", url: "https://yourdomain.com" }],
-              [{ text: "👥 Join Telegram", url: "https://t.me/yourchannel" }]
-            ]
-          }
-        });
-        deleteAfter(sent.chat.id, sent.message_id);
-      }
+      // File already uploaded before
+      const file = fileDb[fileName];
+      const sent = await ctx.replyWithVideo(file.file_id, {
+        caption,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔗 Download Now", url: "https://yourdomain.com" }],
+            [{ text: "🌐 Visit Website", url: "https://t.me/yourchannel" }]
+          ]
+        }
+      });
+      autoDelete(sent.chat.id, sent.message_id);
     } else {
-      const uploadMsg = await ctx.reply('⏳ Uploading file to server...');
+      // Uploading file to channel
+      const uploading = await ctx.reply('⏳ Uploading to server, please wait...');
 
-      const uploaded = await bot.telegram.sendVideo(CHANNEL_ID, { source: localPath }, { caption: "Server Backup: " + fileName });
+      const uploaded = await bot.telegram.sendVideo(CHANNEL_ID, { source: localPath }, { caption: `Backup: ${fileName}` });
 
-      saveFileId(fileName, uploaded.video.file_id, "video");
+      saveFile(fileName, uploaded.video.file_id, 'video');
 
       const sent = await ctx.replyWithVideo(uploaded.video.file_id, {
         caption,
         reply_markup: {
           inline_keyboard: [
-            [{ text: "🔗 DriveLink", url: "https://yourdomain.com" }],
-              [{ text: "👥 Join Telegram", url: "https://t.me/yourchannel" }]
+            [{ text: "🔗 Download Now", url: "https://yourdomain.com" }],
+            [{ text: "🌐 Visit Website", url: "https://t.me/yourchannel" }]
           ]
         }
       });
-      deleteAfter(sent.chat.id, sent.message_id);
+      autoDelete(sent.chat.id, sent.message_id);
 
-      ctx.deleteMessage(uploadMsg.message_id);
+      await ctx.deleteMessage(uploading.message_id).catch(() => {});
     }
-  } catch (error) {
-    console.error(error);
-    ctx.reply('❌ Error while sending file!');
+  } catch (err) {
+    console.error(err);
+    ctx.reply('❌ Failed to send the file.');
   }
 });
 
+// Graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+// Launch
 bot.launch();
