@@ -1,8 +1,9 @@
 {
   "name": "mfbd_render",
   "version": "1.0.0",
-  "description": "MFBD Telegram Bot",
+  "description": "",
   "main": "bot.js",
+  "type": "module",      <-- ADD THIS LINE
   "scripts": {
     "start": "node bot.js"
   },
