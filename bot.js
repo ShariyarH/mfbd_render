@@ -1,124 +1,85 @@
-import { Telegraf } from 'telegraf';
-import axios from 'axios';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import express from 'express';
-import bodyParser from 'body-parser';
+const { Telegraf } = require('telegraf');
+const fs = require('fs');
+require('dotenv').config();
 
-// Setup __dirname for ES Module
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const CHANNEL_ID = process.env.CHANNEL_ID;
 
-// Config
-const BOT_TOKEN = '7418863126:AAH4VWj8PAgXYCb3Du6uznfL2uhnH2Iy6og';
-const CHANNEL_ID = '-1002644073048';
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
-const bot = new Telegraf(BOT_TOKEN);
-
-// Create cache folder
-const cacheFolder = path.join(__dirname, 'cache');
-if (!fs.existsSync(cacheFolder)) {
-  fs.mkdirSync(cacheFolder, { recursive: true });
+// Load existing file database
+let fileDb = {};
+const dbPath = './files.json';
+if (fs.existsSync(dbPath)) {
+  fileDb = JSON.parse(fs.readFileSync(dbPath));
 }
 
-// Start command
-bot.start(async (ctx) => {
-  const text = ctx.message.text;
-  const args = text.split(' ');
+// Save uploaded file_id
+function saveFileId(fileName, fileId, type) {
+  fileDb[fileName] = { file_id: fileId, type: type };
+  fs.writeFileSync(dbPath, JSON.stringify(fileDb, null, 2));
+}
 
-  if (args.length > 1) {
-    const fileUrl = args[1];
-    const fileName = `file_${Date.now()}`;
-    const cachePath = path.join(cacheFolder, `${fileName}.json`);
+// Delete message after 5 min
+function deleteAfter(chatId, messageId) {
+  setTimeout(() => {
+    bot.telegram.deleteMessage(chatId, messageId).catch(e => console.log("Already deleted"));
+  }, 300000); // 5 min
+}
 
-    if (fs.existsSync(cachePath)) {
-      const meta = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-      await ctx.replyWithDocument(meta.file_id);
-    } else {
-      let uploadingMessage;
-      try {
-        // Tell user uploading started
-        uploadingMessage = await ctx.reply('⏳ Uploading your file, please wait...');
-
-        // Download file
-        const tempFilePath = path.join(cacheFolder, `${fileName}`);
-        const response = await axios({
-          method: 'GET',
-          url: fileUrl,
-          responseType: 'stream',
-        });
-
-        const writer = fs.createWriteStream(tempFilePath);
-        response.data.pipe(writer);
-
-        await new Promise((resolve, reject) => {
-          writer.on('finish', resolve);
-          writer.on('error', reject);
-        });
-
-        // Upload to Telegram
-        const uploadFile = async () => {
-          return await bot.telegram.sendDocument(CHANNEL_ID, {
-            source: tempFilePath,
-          });
-        };
-
-        let uploaded;
-        try {
-          uploaded = await uploadFile();
-        } catch (err) {
-          console.log('First upload attempt failed, retrying...');
-          await new Promise(res => setTimeout(res, 3000)); // wait 3s
-          uploaded = await uploadFile();
-        }
-
-        const fileId = uploaded.document.file_id;
-
-        // Save meta
-        const meta = { file_id: fileId };
-        fs.writeFileSync(cachePath, JSON.stringify(meta));
-
-        // Edit uploading message
-        await ctx.telegram.editMessageText(ctx.chat.id, uploadingMessage.message_id, null, '✅ Upload complete! Here is your file:');
-        await ctx.replyWithDocument(fileId);
-
-      } catch (err) {
-        console.error('Upload failed:', err);
-        await ctx.reply('❌ Failed to upload the file. Please try again.');
-      } finally {
-        // Clean up downloaded temp file
-        const tempFilePath = path.join(cacheFolder, `${fileName}`);
-        if (fs.existsSync(tempFilePath)) {
-          fs.unlinkSync(tempFilePath);
-        }
-      }
-    }
-  } else {
-    await ctx.reply('👋 Send me a file URL after /start to upload and download!');
-  }
+// Start
+bot.start((ctx) => {
+  ctx.reply('👋 Welcome! Send /getfile to receive your file.');
 });
 
-// Express Webhook Handler
-const app = express();
-app.use(bodyParser.json());
+// Command to get file
+bot.command('getfile', async (ctx) => {
+  const fileName = "ExampleVideo.mp4"; // Update this to your file
+  const localPath = "./example.mp4"; // Your local file path
+  const caption = `
+📂 File: ${fileName}
+✅ 5 Min Auto Delete Active
+🚨 Forwarding Can Ban You!
+`;
 
-app.post('/bot', async (req, res) => {
   try {
-    await bot.handleUpdate(req.body);
-    res.status(200).send('OK');
+    if (fileDb[fileName]) {
+      const fileData = fileDb[fileName];
+      if (fileData.type === 'video') {
+        const sent = await ctx.replyWithVideo(fileData.file_id, {
+          caption,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🔗 DriveLink", url: "https://yourdomain.com" }],
+              [{ text: "👥 Join Telegram", url: "https://t.me/yourchannel" }]
+            ]
+          }
+        });
+        deleteAfter(sent.chat.id, sent.message_id);
+      }
+    } else {
+      const uploadMsg = await ctx.reply('⏳ Uploading file to server...');
+
+      const uploaded = await bot.telegram.sendVideo(CHANNEL_ID, { source: localPath }, { caption: "Server Backup: " + fileName });
+
+      saveFileId(fileName, uploaded.video.file_id, "video");
+
+      const sent = await ctx.replyWithVideo(uploaded.video.file_id, {
+        caption,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔗 DriveLink", url: "https://yourdomain.com" }],
+              [{ text: "👥 Join Telegram", url: "https://t.me/yourchannel" }]
+          ]
+        }
+      });
+      deleteAfter(sent.chat.id, sent.message_id);
+
+      ctx.deleteMessage(uploadMsg.message_id);
+    }
   } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).send('Webhook error');
+    console.error(error);
+    ctx.reply('❌ Error while sending file!');
   }
 });
 
-app.get('/', (req, res) => {
-  res.send('Bot is running.');
-});
-
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+bot.launch();
