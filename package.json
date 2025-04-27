@@ -1,12 +1,15 @@
 {
   "name": "mfbd_render",
   "version": "1.0.0",
-  "description": "",
+  "description": "MFBD Telegram Bot",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "telegraf": "^4.12.2"
+  }
 }
