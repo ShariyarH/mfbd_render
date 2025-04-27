@@ -3,7 +3,7 @@ import { Telegraf } from 'telegraf';
 import fs from 'fs';
 import path from 'path';
 
-const bot = new Telegraf('7418863126:AAE81U_N7-GmuE4JUn0AtpZoualmyzcqn4k');
+const bot = new Telegraf('7418863126:AAH4VWj8PAgXYCb3Du6uznfL2uhnH2Iy6og');
 
 bot.start(async (ctx) => {
   const text = ctx.message.text;
